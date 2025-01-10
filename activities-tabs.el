@@ -71,6 +71,9 @@ accordingly."
         (progn
           (tab-bar-mode 1)
           (add-hook 'window-configuration-change-hook #'activities-tabs--window-configuration-change)
+          (add-hook 'tab-bar-tab-pre-close-functions #'activities-tabs-mode--closing-tab)
+          (remove-hook 'delete-frame-functions #'activities-mode--deleting-frame)
+          (add-hook 'delete-frame-functions #'activities-tabs-mode--deleting-frame)
           (advice-add #'activities-resume :before #'activities-tabs-before-resume)
           (pcase-dolist (`(,symbol . ,function) override-map)
             (advice-add symbol :override function))
@@ -84,12 +87,36 @@ accordingly."
             (setf activities-tabs-tab-bar-tab-face-function-original tab-bar-tab-face-function
                   tab-bar-tab-face-function #'activities-tabs--tab-bar-tab-face-function)))
       (remove-hook 'window-configuration-change-hook #'activities-tabs--window-configuration-change)
+      (remove-hook 'tab-bar-tab-pre-close-functions #'activities-tabs-mode--closing-tab)
+      (remove-hook 'delete-frame-functions #'activities-tabs-mode--deleting-frame)
+      (when activities-mode
+        (add-hook 'delete-frame-functions #'activities-mode--deleting-frame))
       (advice-remove #'activities-resume #'activities-tabs-before-resume)
       (pcase-dolist (`(,symbol . ,function) override-map)
         (advice-remove symbol function))
       (when activities-tabs-tab-bar-tab-face-function-original
         (setf tab-bar-tab-face-function activities-tabs-tab-bar-tab-face-function-original
               activities-tabs-tab-bar-tab-face-function-original nil)))))
+
+(defun activities-tabs-mode--closing-tab (&rest _)
+  "Save the current tab's activity.
+Also kill the activity's buffers if `activities-kill-buffers' and
+`activities-kill-buffers-deleting-frame-tab' are non-nil.
+To be called from `tab-bar-tab-pre-close-functions'."
+  (when-let ((activity (activities-tabs-current)))
+    (activities-save activity :lastp t)
+    (when activities-kill-buffers-deleting-frame-tab
+      (activities-tabs--kill-buffers))))
+
+(defun activities-tabs-mode--deleting-frame (&rest _)
+  "Save any activities open in the current frame's tabs.
+Also kill the activity's buffers if
+`activities-tabs-mode--closing-tab' would do so.
+To be called from `delete-frame-functions'."
+  (let ((tabs (tab-bar-tabs)))
+    (dolist (tab tabs)
+      (tab-bar-switch-to-tab (alist-get 'name tab))
+      (activities-tabs-mode--closing-tab))))
 
 ;;;; Commands
 
